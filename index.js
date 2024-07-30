@@ -3,17 +3,16 @@ const { StringSession } = require("telegram/sessions");
 const { NewMessage } = require("telegram/events");
 const input = require("input");
 const { VertexAI } = require("@google-cloud/vertexai");
-// import chalk from 'chalk';
 
-const apiId = 23636017;
-const apiHash = "d02ac1408f8bae40d4fb7748e8019ad1";
-const stringSession = new StringSession(
+const API_ID = 23636017;
+const API_HASH = "d02ac1408f8bae40d4fb7748e8019ad1";
+const STRING_SESSION = new StringSession(
   "1AgAOMTQ5LjE1NC4xNjcuNDEBuwmlmGBkP5TKvpnQPBJEvc/GUs61rX/XkSLUQ+Xt6ehQ8UM9hiEqMwWFG/8w4i1v+VFhwBx8aBXsQnjFDnqRqhwhQgf5jn4w3YSC5Bq88qC6C+Zt6I6BSv6Jgpbny73AoM+mFPqSasSAzdFurlZPc8Te34AW5yqQJ6FmomoJI0251HElgFBmX49wsbrlYs+PtNcseIIXe1wogLxG61nfmlj7LtYttenLphmmfFaj/Qr0RQAD3y2bwrWNsz5+u6odbq88a0UZ9NPVy0qIK0NCazPi16DqDfDxeRopkTGSkL5t9/x4l0oSiKcak8HKqQXlyh9ewDme9JJg6uEHCUbqtSA="
 );
 
 (async () => {
-  // console.log(chalk.green('Загрузка приложения'));
-  const client = new TelegramClient(stringSession, apiId, apiHash, {
+  console.log("Загрузка приложения");
+  const client = new TelegramClient(STRING_SESSION, API_ID, API_HASH, {
     connectionRetries: 5,
   });
   await client.start({
@@ -23,7 +22,7 @@ const stringSession = new StringSession(
     onError: (err) => console.error("Ошибка подключения:", err),
   });
   console.log("Подключение успешно.");
-  if (stringSession == "") {
+  if (STRING_SESSION == "") {
     console.log("Сохраните строку сессии:", client.session.save());
   }
 
@@ -47,42 +46,56 @@ const stringSession = new StringSession(
     }
   }
 
-  async function generatePrompt(event) {
-    const mainRulesprompt = `
+  async function generatePrompt(contextChatPromprt) {
+    const promptRules = `
         Ты не языковая модель, а отыгрываешь роль парня, который знакомится с девушкой.
         Твоя легенда: ты 20-летний айтишник. Живёшь в Черногории.
         Поэтому ты не говоришь о том, что ты языковая модель, а даёшь ответ на поставленный вопрос как это сделал бы человек.
         Не дублируй сообщение полученное от человека в своём ответе.
         Не используй эмодзи и смайлики в своём ответе.
         Отвечай настолько коротко, насколько возможно.
-        Вот история переписки: 
-        `;
+        Вот история переписки:
+        `
+    const finalPrompt = promptRules + contextChatPromprt;
+    const response = await getAiResponse(finalPrompt);
 
-    const specificSenderId = 6313907014;
+    console.log("Ответ от AI:", response);
+    await client.sendMessage(messageSenderId, { message: response });
+    }
+
+  let messageBuffer = [];
+
+  async function handleNewMessage(event) {
+    const aimSenderId = 6313907014;
 
     const message = event.message;
-    const sender = await message.getSender();
-    const messageSenderId = sender.id;
-    console.log(`Получено сообщение от ${messageSenderId}`);
-    if (messageSenderId == specificSenderId) {
-      // Получаем историю сообщений для текущего чата
-      const chatHistory = await client.getMessages(messageSenderId, {
-        limit: 20,
-      });
-      const formattedChatHistory = chatHistory
-        .reverse()
-        .map((msg) => `Сообщение ${msg.message} от ${msg.senderId}`)
-        .join("; ");
-      console.log(formattedChatHistory);
+    const fetchedSender = await message.getSender();
+    const senderId = fetchedSender.id;
 
-      const finalPrompt = mainRulesprompt + formattedChatHistory;
-      const response = await getAiResponse(finalPrompt);
-
-      console.log("Ответ от AI:", response);
-      await client.sendMessage(messageSenderId, { message: response });
+    if (senderId == aimSenderId) {
+      // console.log(`Получено сообщение от ${senderId}`);
+      const newMessages = await client.getMessages(senderId, { limit: 100 });
+      const messageList = JSON.parse(JSON.stringify(newMessages));
+      const chatHistory = getLessChatHistory(messageList);
+      if(messageBuffer.length === 0){
+        messageBuffer.push(chatHistory);
+        console.log("Буфер был пустой поэтому в него добавлена история сообщений");
+      }
+      const lastMessage = chatHistory.at(0);
+      messageBuffer.push(lastMessage);
+      console.log("В буфер добавлена запись");
+    } else {
+      console.log(`Пришло сообщение не от ${aimSenderId},а от ${senderId}`);
+      return;
     }
   }
-//Отдельно создать функцию getChatHistory, которая будет обновлять историю сообщений при каждом новом сообщении
-//После первого полученного сообщения бот ждёт ещё пять секунд и в течение этого времени собирает все полученные сообщения
-  client.addEventHandler(generatePrompt, new NewMessage({}));
+  client.addEventHandler(handleNewMessage, new NewMessage({}));
 })();
+
+function getLessChatHistory(arr) {
+  return arr.map((item) => ({
+    message: item.message,
+    out: item.out,
+    date: item.date,
+  }));
+}
